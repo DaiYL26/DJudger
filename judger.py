@@ -40,42 +40,6 @@ def create_file(user: str, problem_id: str, code: str, language: str) -> Tuple:
     return (file_path, file_name)
 
 
-def check_py3_syatax(target:str, log:str) -> str:
-    '''
-        check python3 systax and kill the process and its subprocesses
-    '''
-    commds = [f'ag os {target} > {log}',
-              f'ag multiprocessing {target} >> {log}',
-              f'ag socket {target} >> {log}',
-              f'ag requests {target} >> {log}',
-              f'ag http {target} >> {log}']
-    
-    for commd in commds:
-        os.system(commd)
-        
-    systax_info = ''
-    with open(log, 'r') as err:
-        for line in err.readlines():
-            systax_info += line
-
-    
-    if systax_info != '':
-        return systax_info + '\n Not Allow'
-    
-    try:
-        subprocess.run(f'python3 {target} 2> {log}', shell=True, check=True, timeout=0.5)
-    except subprocess.CalledProcessError:
-        # check a systax error beacuse not zero return
-        with open(log, 'r') as err:        
-            for line in err.readlines():
-                systax_info += line
-    except subprocess.TimeoutExpired:
-        # kill the process
-        pass
-
-    return systax_info
-
-
 def compile_src(target: Tuple, language: str) -> str:
     '''
         convert source file to executable file.
@@ -84,29 +48,33 @@ def compile_src(target: Tuple, language: str) -> str:
     '''
     target_file = target[0] + target[1]
 
-    info_file = f'{target[0]}/{target[1]}compile_info.log'
+    # compile .py file to binary .pyc file and check some invalid modules and systax error
     if language == 'Python3':
-        compile_info = check_py3_syatax(target_file, info_file)
-        if compile_info != '':
-            return compile_info
+        check_forbidden = subprocess.Popen(f'ag "os|threading|multiprocessing" {target_file}', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out, err = check_forbidden.communicate()
+        if check_forbidden.returncode == 0:
+            return "These modules are not allow in here! \n  " + str(out, encoding='utf-8')
+        
+        py_compile = subprocess.Popen(f'python3 -m py_compile {target_file}', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out, err = py_compile.communicate()
+        if py_compile.returncode != 0:
+            return str(err, encoding='utf-8')
 
-        return target_file
+        pyc_file = target[0] + '__pycache__/' + target[1].replace('py', 'cpython-38.pyc')
+                
+        return pyc_file
     
     if language == 'C':
-        if os.system(f'gcc {target_file} -o {target[0]}/main 2> {info_file}') != 0:
-            error_info = ''
-            with open(info_file) as info:
-                for line in info.readlines():
-                    error_info += line
-            return error_info
+        c_compile = subprocess.Popen(f'gcc {target_file} -o {target[0]}main', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out, err = c_compile.communicate()
+        if c_compile.returncode != 0:
+            return str(err, encoding='utf-8')
                 
     elif language == 'C++':
-        if os.system(f'g++ {target_file} -o {target[0]}/main 2> {info_file}') != 0:
-            error_info = ''
-            with open(info_file) as info:
-                for line in info.readlines():
-                    error_info += line
-            return error_info
+        cpp_compile = subprocess.Popen(f'g++ {target_file} -o {target[0]}main', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out, err = cpp_compile.communicate()
+        if cpp_compile.returncode != 0:
+            return str(err, encoding='utf-8')
     
     return target[0] + 'main'  
 
@@ -132,7 +100,7 @@ def run_one(exec_file: str, data_path_in: str, data_path_out: str, tmp_path: str
         }
         
         if language == 'Python3':
-            runcnf['args'] = ['python3', exec_file, '2>', './error.log']
+            runcnf['args'] = ['python3', exec_file]
         elif language == 'C' or language == 'C++':
             runcnf['args'] = ['./' + exec_file]
             runcnf['trace'] = True
@@ -167,7 +135,7 @@ def get_result(exec_file: str, language: str, problem_id: str, tmp_path: str) ->
         in_path = os.path.join(data_path, str(_) + '.in')
         out_path = os.path.join(data_path, str(_) + '.out')
         # tmp_path = 'user_code/user/1001/tmp.txt'
-        res = run_one(exec_file, in_path, out_path, tmp_path, 1000, 20 * 1024, language)
+        res = run_one(exec_file, in_path, out_path, tmp_path, 1000, 64 * 1024, language)
         res['result'] = RESULT_STR[res['result']]
         results.append(res)
 
@@ -179,8 +147,7 @@ def remove_tmp_file(user: str) -> None:
         remove the temporary files creating in the test by the user
     '''
     dpath = os.path.join('user_code/user', user)
-    for item in [ os.path.join(dpath, sub) for sub in os.listdir(dpath) ]:
-        os.remove(item)
+    subprocess.run(f'rm -r {dpath}', shell=True)
         
 
 def judge(user: str, problem_id: str, language: str, code: str, info='') -> List:
@@ -205,103 +172,3 @@ def judge(user: str, problem_id: str, language: str, code: str, info='') -> List
     remove_tmp_file(user)
     
     return res 
-
-
-
-if __name__ == '__main__':
-    
-    print (judge('1001', '1', 'C++', '''
-#include <iostream>
-#include <cstring>
-#include <set>
-#include <unordered_map>
-#include <unistd.h>
-using namespace std;
-
-const int N = 1e5;
-
-// head 邻接表头，vertex存的顶点，next_p 存邻接表下一条边， idx 指针
-int head[N], vertex[N], next_p[N], idx;
-int n, m, ans = 1e9;
-// colors[c] = {} 染成颜色 c 的点的集合
-unordered_map<int, set<int>> colors;
-unordered_map<int, set<int>> result;
-
-//邻接表加边
-void add(int a, int b)
-{
-    vertex[idx] = b, next_p[idx] = head[a], head[a] = idx ++;
-}
-
-// 检查当前点 cur 能否染成 color 色
-bool check(int cur, int color)
-{
-    for (int i = head[cur]; i != -1; i = next_p[i])
-    {
-        int target = vertex[i]; // cur 的邻点
-
-        if (colors[color].find(target) != colors[color].end())
-            return false;
-    }
-
-    return true;
-}
-
-// cur 当前点， color_num 颜色数
-void draw(int cur, int color_num)
-{
-    if (color_num >= ans) return; //剪枝
-
-    if (cur > n)
-    {
-        ans = min(ans, color_num); // 取最小的颜色方案数
-        for (int i = 1; i <= color_num; i ++)
-        {
-            result[i] = colors[i];
-        }
-        return;
-    }
-
-    // 依次枚举颜色
-    for (int c = 1; c <= color_num; c++)
-    {
-        if (check(cur, c)) // 当前点 是否 能染成颜色 c
-        {
-            colors[c].insert(cur);
-            draw(cur + 1, color_num); //不扩充颜色，染下一个点
-            colors[c].erase(cur);
-        }
-    }
-
-    colors[color_num + 1].insert(cur);
-    draw(cur + 1, color_num + 1); // 扩充颜色，染下一个点
-    colors[color_num + 1].erase(cur);
-}
-
-int main()
-{
-    cin >> n >> m;
-    memset(head, -1, sizeof head);
-    for (int i = 0; i < m; i ++)
-    {
-        int a, b;
-        cin >> a >> b;
-        add(a, b);
-        add(b, a);
-    }
-
-    draw(1, 0);
-
-    // for (auto kv = result.begin(); kv != result.end(); kv ++)
-    // {
-    //     cout << "color " << kv->first << " : ";
-    //     for (auto item = kv->second.begin(); item != kv->second.end(); item ++)
-    //         cout << *item << ' ';
-    //     cout << endl;
-    // }
-    
-    cout << ans << endl;
-
-    return 0;
-}
-'''))
