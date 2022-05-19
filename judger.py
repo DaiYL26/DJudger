@@ -50,7 +50,7 @@ def compile_src(target: Tuple, language: str) -> str:
 
     # compile .py file to binary .pyc file and check some invalid modules and systax error
     if language == 'Python3':
-        check_forbidden = subprocess.Popen(f'ag "os|threading|multiprocessing" {target_file}', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        check_forbidden = subprocess.Popen(f'ag "os|threading|multiprocessing|time" {target_file}', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out, err = check_forbidden.communicate()
         if check_forbidden.returncode == 0:
             return "These modules are not allow in here! \n  " + str(out, encoding='utf-8')
@@ -101,7 +101,7 @@ def run_one(exec_file: str, data_path_in: str, data_path_out: str, tmp_path: str
         
         if language == 'Python3':
             runcnf['args'] = ['python3', exec_file]
-        elif language == 'C' or language == 'C++':
+        if language == 'C' or language == 'C++':
             runcnf['args'] = ['./' + exec_file]
             runcnf['trace'] = True
             runcnf['calls'] = [0, 1, 3, 5, 8, 9, 10, 11, 12, 17, 20, 21, 63, 89, 99, 158, 228, 231, 257]
@@ -119,7 +119,7 @@ def run_one(exec_file: str, data_path_in: str, data_path_out: str, tmp_path: str
     return res   
 
 
-def get_result(exec_file: str, language: str, problem_id: str, tmp_path: str) -> List:
+def get_result(exec_file: str, language: str, problem_id: str, tmp_path: str, time_limit: int, memory_limit: int) -> List:
     '''
         to get the results for the problem
         
@@ -135,7 +135,7 @@ def get_result(exec_file: str, language: str, problem_id: str, tmp_path: str) ->
         in_path = os.path.join(data_path, str(_) + '.in')
         out_path = os.path.join(data_path, str(_) + '.out')
         # tmp_path = 'user_code/user/1001/tmp.txt'
-        res = run_one(exec_file, in_path, out_path, tmp_path, 1000, 64 * 1024, language)
+        res = run_one(exec_file, in_path, out_path, tmp_path, time_limit, memory_limit, language)
         res['result'] = RESULT_STR[res['result']]
         results.append(res)
 
@@ -150,7 +150,7 @@ def remove_tmp_file(user: str) -> None:
     subprocess.run(f'rm -r {dpath}', shell=True)
         
 
-def judge(user: str, problem_id: str, language: str, code: str, info='') -> List:
+def judge(user: str, problem_id: str, language: str, code: str, time_limit: int = 1000, memory_limit: int = 64 * 1024, info='') -> List:
     '''
         judge the code is true or not
     '''
@@ -167,7 +167,7 @@ def judge(user: str, problem_id: str, language: str, code: str, info='') -> List
     
     tmp_path = os.path.join(target[0], 'tmp.out')
     
-    res = get_result(exectable_file, language, problem_id, tmp_path)
+    res = get_result(exectable_file, language, problem_id, tmp_path, time_limit, memory_limit)
     
     remove_tmp_file(user)
     
